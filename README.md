@@ -2,7 +2,7 @@
 
 This repository contains code for evaluating the effect of vegetation
 mortality on wildfire burn severity in the Woolsey Fire. It was developed
-as part of the 
+as part of the
 [CU Boulder Earth Data Analytiscs Certificate Program](https://earthlab.colorado.edu/earth-data-analytics-professional-graduate-certificate).
 
 
@@ -71,7 +71,7 @@ You can also access the utility functions defined in this package directly.
 For example, the `plot_bands` function simplifies plotting an xarray.DataArray
 using the earthpy library:
 
-```
+```python
 import rioxarray as rxr
 
 from ea_drought_related_burn_severity.utils import plot_bands
