@@ -1,0 +1,21 @@
+name: ea-drought-related-burn-severity
+channels:
+- conda-forge
+dependencies:
+- pip
+
+# General science packages
+- matplotlib
+- numpy
+- numpy_groupies
+- seaborn
+
+# Geospatial packages
+- earthpy
+- geopandas
+- rioxarray
+- xarray
+
+# Jupyter Notebook packages
+- jupyterlab
+- jupyter_contrib_nbextensions
