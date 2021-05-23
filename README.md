@@ -1,4 +1,4 @@
-# ea-drought-related-burn-severity
+# ea-drought-burn
 
 This repository contains code for evaluating the effect of vegetation
 mortality on wildfire burn severity in the Woolsey Fire. It was developed
@@ -34,14 +34,14 @@ following commands to set up the environment needed to run this package:
 
 ```
 conda env create --file environment.yml
-conda activate ea-drought-related-burn-severity
+conda activate ea-drought-burn
 ```
 
 Then install the package itself with:
 
 ```
-git clone https://github.com/adamancer/ea-drought-related-burn-severity
-cd ea-drought-related-burn-severity
+git clone https://github.com/adamancer/ea-drought-burn
+cd ea-drought-burn
 pip install -e .
 ```
 
@@ -56,14 +56,14 @@ The package includes two directories:
 
 + **notebooks** contains a set of Jupyter Notebooks used to explore and model
   climate, vegetation, and burn severity data
-+ **ea_drought_related_burn_severity** contains a set of utility functions
++ **ea_drought_burn** contains a set of utility functions
   used by the notebooks to read, process, and plot raster data
 
 You can run the included notebooks as follows:
 
 ```
-conda activate ea-drought-related-burn-severity
-cd path/to/ea-drought-related-burn-severity
+conda activate ea-drought-burn
+cd path/to/ea-drought-burn
 jupyter notebook
 ```
 
@@ -73,8 +73,7 @@ using the earthpy library:
 
 ```python
 import rioxarray as rxr
-
-from ea_drought_related_burn_severity.utils import plot_bands
+from ea_drought_burn.utils import plot_bands
 
 xda = rxr.open_rasterio("path/to/raster.tif", masked=True)
 plot_bands(xda)

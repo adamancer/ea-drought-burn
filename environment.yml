@@ -1,4 +1,4 @@
-name: ea-drought-related-burn-severity
+name: ea-drought-burn
 channels:
 - conda-forge
 dependencies:
