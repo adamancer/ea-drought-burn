@@ -52,28 +52,42 @@ def checksum(path, size=8192):
         return md5_hash.hexdigest()
 
 
-def checksum_walk(path):
+def checksum_walk(path, output=None):
     """Walks path and generates a MD5 checksum for each file
 
     Parameters
     ----------
-    path: str 
+    path: str
         path of file to hash
-        
+    output: str
+        path to which to write the checksums. If not given,
+        a checksums.json file is added in each directory.
+
     Returns
     -------
     None
     """
+
+    if output is not None:
+        checksum_path = os.path.abspath(output)
+        checksum_dir = os.path.dirname(checksum_path)
+        try:
+            with open(output, "r") as f:
+                checksums = json.load(f)
+        except IOError:
+            checksums = {}
+
     for root, dirs, files in os.walk(path):
         if files:
 
             # Look for existing checksums
-            checksum_path = os.path.join(root, "checksums.json")
-            try:
-                with open(checksum_path, "r") as f:
-                    checksums = json.load(f)
-            except IOError:
-                checksums = {}
+            if output is None:
+                checksum_path = os.path.join(root, "checksums.json")
+                try:
+                    with open(checksum_path, "r") as f:
+                        checksums = json.load(f)
+                except IOError:
+                    checksums = {}
 
             # Checksum each data file
             for fn in files:
@@ -81,10 +95,20 @@ def checksum_walk(path):
                     fn != "checksums.json"
                     and os.path.splitext(fn)[-1] != ".md5"
                 ):
+
+                    fp = os.path.abspath(os.path.join(root, fn))
+
+                    # Use the relative path as the key if using one file
+                    if output:
+                        key = fp[len(checksum_dir):].replace("\\", "/") \
+                                                    .lstrip("/")
+                    else:
+                        output = fn
+
                     try:
-                        checksums[fn]
+                        checksums[key]
                     except KeyError:
-                        checksums[fn] = checksum(os.path.join(root, fn))
+                        checksums[key] = checksum(fp)
 
             # Save checksums as JSON
             with open(checksum_path, "w") as f:
@@ -846,7 +870,7 @@ def extract_grid(xda, path=None, nodata=0):
             arr[i_start:i_end, j_start:j_end] = val
             val += 1
 
-    # Write grid to raster with nodata value
+    # Write grid to raster with nodata set to 0
     xda = xr.DataArray(arr,
                        coords={"y": grid.y,
                                "x": grid.x,
