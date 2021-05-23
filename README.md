@@ -54,12 +54,14 @@ as soon as the data is available.**
 
 The package includes two directories:
 
-+ **notebooks** contains a set of Jupyter Notebooks used to explore and model
-  climate, vegetation, and burn severity data
 + **ea_drought_burn** contains a set of utility functions
   used by the notebooks to read, process, and plot raster data
++ **notebooks** contains a set of Jupyter Notebooks used to explore and model
+  climate, vegetation, and burn severity data
++ **reports** contains documents summarizing the results of the project (in
+  progress)
 
-You can run the included notebooks as follows:
+You can run the project notebooks as follows:
 
 ```
 conda activate ea-drought-burn
@@ -67,9 +69,29 @@ cd path/to/ea-drought-burn
 jupyter notebook
 ```
 
-You can also access the utility functions defined in this package directly.
-For example, the `plot_bands` function simplifies plotting an xarray.DataArray
-using the earthpy library:
+You can also create and view a report summarizing the project. The
+instructions below update the HTML report in the reports directory of this
+repository, but you can change the `html_path` variable to another location
+if needed.
+
+```python
+import os
+
+from ea_drought_burn.config import PROJ_DIR
+from ea_drought_burn.run import notebook_to_html
+
+# Update HTML report
+nb_path = os.path.join(PROJ_DIR, "notebooks", "project-report.ipynb")
+html_path = os.path.join(PROJ_DIR, "reports", "project-report.htm")
+notebook_to_html(nb_path, html_path)
+
+# Open report in default browser
+os.startfile(html_path)
+```
+
+The utility functions in ea_drought_burn can be accessed directly. For example, 
+the `plot_bands` function simplifies plotting an xarray.DataArray using the
+earthpy library:
 
 ```python
 import rioxarray as rxr
