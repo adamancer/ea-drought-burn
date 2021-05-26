@@ -7,13 +7,13 @@ import os
 import re
 import tempfile
 import warnings
-import zipfile
 
 import earthpy.plot as ep
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy_groupies as npg
+import pandas as pd
 import rasterio
 from rasterio.enums import Resampling
 from rasterio.plot import plotting_extent as rasterio_plotting_extent
@@ -280,18 +280,13 @@ def create_sampling_mask(xda, counts, boundary=None, seed=None, path=None):
     return xr.where(sampling_mask == 1, True, False)
 
 
-def load_nifc_fires(*fire_ids, crs=None, **kwargs):
+def load_nifc_fires(path, fire_ids=None, crs=None, **kwargs):
     """Loads fires matching the given IDs from NIFC shapefile"""
     
     # Load the NIFC fire shapefile
-    nifc_fires_path = os.path.join(
-        "custom",
-        "nifc_fire_perimeters",
-        "US_HIST_FIRE_PERIMTRS_2000_2018_DD83.shp"
-    )
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
-        nifc_fires = gpd.read_file(nifc_fires_path, **kwargs)
+        nifc_fires = gpd.read_file(path, **kwargs)
     
     # Reproject to given CRS if needed
     if crs and nifc_fires.crs != crs:
@@ -308,6 +303,9 @@ def load_nifc_fires(*fire_ids, crs=None, **kwargs):
         "gisacres",
         "geometry"
     ]]
+    
+    # Convert perimeterd to date
+    nifc_fires["perimeterd"] = pd.to_datetime(nifc_fires["perimeterd"])
     
     if fire_ids:
         return nifc_fires[nifc_fires.uniquefire.isin(fire_ids)]
