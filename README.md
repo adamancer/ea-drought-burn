@@ -1,5 +1,7 @@
 # ea-drought-burn
 
+[![DOI](https://zenodo.org/badge/359515921.svg)](https://zenodo.org/badge/latestdoi/359515921)
+
 This repository contains code for evaluating the effect of vegetation
 mortality on burn severity during the Woolsey Fire. It was developed as
 part of the
