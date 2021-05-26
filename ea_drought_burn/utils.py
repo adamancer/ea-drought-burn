@@ -509,8 +509,8 @@ def copy_dataset_metadata(xdat, other):
     return copy_array_metadata(xarr, other).to_dataset(dim="band")
 
 
-def iterarrays(xobj):
-    """Iterates through an xarray object
+def iterarrays(obj):
+    """Iterates through an array or dataset
 
     Parameters
     ---------
@@ -522,9 +522,9 @@ def iterarrays(xobj):
     iterable
         list or similar of the children of the given object
     """
-    if isinstance(xobj, xr.DataArray):
-        return xobj if len(xobj.shape) > 2 else [xobj]
-    return xobj.values()
+    if isinstance(obj, xr.Dataset):
+        return obj.values()
+    return obj if len(obj.shape) > 2 else [obj]
 
 
 def to_numpy_array(obj, dim="band"):
