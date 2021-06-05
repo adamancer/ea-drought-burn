@@ -245,7 +245,7 @@ def create_sampling_mask(xda, counts, boundary=None, seed=None, path=None):
         
         # Build mask based on the sample
         mask = np.full(xda.shape[-2:], 0)
-        for (col, row) in rng.choice(xy, sample_size, replace=False):
+        for (col, row) in rng.choice(sample, sample_size, replace=False):
             mask[row][col] = 1
 
         # Pool sizes are padded by 10%, so the sample is larger than needed.
