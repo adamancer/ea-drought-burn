@@ -681,19 +681,14 @@ def find_scenes(src):
     
     return scenes
 
-        
-def stack_scene(scene, align_to=None):
-    """Stacks all files that are part of a scene"""
+
+def stack_scene(scene, reproj_to=None, **kwargs):
+    """Stacks all files that are part of a scene in a single array
     layers = []
     attrs = {}
-    for band in sorted(scene, key=lambda s: s.zfill(16)):
-        layer = rxr.open_rasterio(scene[band], masked=True)
-        
-        # Align scene if align_to is given
-        if align_to is not None:
-            layer = reproject_match(layer, align_to)
-        
-        layers.append(layer)
+    for band in sorted(scene, key=sortable):
+    
+        layers.append(open_raster(scene[band], **kwargs))
 
         # Update band number
         del layers[-1]["band"]
@@ -703,6 +698,13 @@ def stack_scene(scene, align_to=None):
         attrs.setdefault("band_name", []).append(band)
         attrs.setdefault("long_name", []).append(os.path.basename(scene[band]))
 
+    # Reproject layers to the same resolution. Reproject to the highest
+    # resolution in the input data if no reference array is provided.
+    if reproj_to is None:
+        res = min([lyr.rio.resolution()[0] for lyr in layers])
+        reproj_to = [lyr for lyr in layers if lyr.rio.resolution()[0] == res][0] 
+    layers = [reproject_match(lyr, reproj_to) for lyr in layers]
+    
     xda = xr.concat(layers, dim="band")
     for key, val in attrs.items():
         xda.attrs[key] = val
