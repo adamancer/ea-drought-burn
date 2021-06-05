@@ -515,14 +515,20 @@ def copy_array_metadata(xarr, other):
         dims = [d for d in xarr.dims if d in coords]
         return xarr.__class__(other, dims=dims, coords=coords)
 
-    # If arrays have the same dimensions, copy spatial and scalar coordinates
-    xarr_sq = xarr.squeeze()
-    other_sq = other.squeeze()
-    if xarr_sq.shape == other_sq.shape:
-        coords = {k: v for k, v in xarr_sq.coords.items()
-                  if k not in xarr_sq.dims}
-        return xarr.__class__(
-            other_sq, dims=xarr_sq.dims, coords=xarr_sq.coords)
+    # If arrays have the same xy, copy spatial and scalar coordinates
+    # to each band in the other array
+    if xarr.shape[-2:] == other.shape[-2:]:
+        for xband in iterarrays(xarr):
+            coords = {k: v for k, v in xband.coords.items()
+                      if k not in xband.dims}
+            
+            obands = []
+            for oband in iterarrays(other):
+                obands.append(xband.__class__(oband,
+                                              dims=xband.dims,
+                                              coords=xband.coords))
+            
+            return xr.concat(obands, dim="band")
 
     raise ValueError("Could not copy xr metadata")
 
