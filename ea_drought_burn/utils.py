@@ -194,7 +194,14 @@ def zip_shapefile(gdf, path):
             f.write(os.path.join(tmpdir.name, fn), fn, zipfile.ZIP_DEFLATED)
 
 
-def create_sampling_mask(xda, counts, boundary=None, seed=None, path=None):
+def create_sampling_mask(
+    xda,
+    counts,
+    boundary=None,
+    balanced=False,
+    seed=None,
+    path=None,
+):
     """Creates mask for a sample of a data array
     
     Parameters
@@ -203,11 +210,13 @@ def create_sampling_mask(xda, counts, boundary=None, seed=None, path=None):
         array on which to base the sampling mask
     counts: dict
         name and counts for each mask to be created
-    boundary: gpd.GeoDataFrame
+    boundary: gpd.GeoDataFrame (optional)
         boundary to clip the source array to
-    seed: int
+    balanced: bool (optional)
+        if True, ensure same counts for each distinct value
+    seed: int (optional)
         seed for the random number generator
-    path: str
+    path: str (optional)
         save mask to path if given
         
     Returns
@@ -215,6 +224,27 @@ def create_sampling_mask(xda, counts, boundary=None, seed=None, path=None):
     xarray.DataArray
         array containing each mask as a band
     """
+    
+    if balanced:
+        vals = [v for v in np.unique(xda) if np.isfinite(v)]
+        for key, count in counts.items():
+            counts[key] = count // len(vals)
+        mask = None
+        for val in vals:
+            subset = xda.where(xda == val, np.nan)
+            submask = create_sampling_mask(subset,
+                                           counts=counts,
+                                           boundary=boundary,
+                                           seed=seed)
+            if mask is None:
+                mask = submask
+            else:
+                bands = []
+                for mask_band, sub_band in zip(mask, submask):
+                    bands.append(xr.where(sub_band, sub_band, mask_band))
+                mask = xr.concat(bands, dim="band")
+        
+        return mask
 
     # Clip data array to boundary if given
     if boundary is not None:
@@ -233,11 +263,18 @@ def create_sampling_mask(xda, counts, boundary=None, seed=None, path=None):
     
     # Create a sample pool large enough to accommodate masks in counts
     rng = np.random.default_rng(seed)
-    pool = rng.choice(xy, pool_size, replace=False).tolist()
+    try:
+        pool = rng.choice(xy, pool_size, replace=False).tolist()
+    except ValueError:
+        pool = None
 
     # Add each mask as a layer in an xarray
     masks = {}
     for name, count in counts.items():
+        
+        if pool is None:
+            masks[name] = np.full(xda.shape[-2:], False)
+            continue
         
         # Pull samples from the pool to use for this mask
         sample_size = int(scalar * count)
@@ -248,9 +285,9 @@ def create_sampling_mask(xda, counts, boundary=None, seed=None, path=None):
         for (col, row) in rng.choice(sample, sample_size, replace=False):
             mask[row][col] = 1
 
-        # Pool sizes are padded by 10%, so the sample is larger than needed.
-        # Count pixels that fall into the boundary, then remove points to
-        # get down to the exact number desired.
+        # Pool sizes are padded by a few percent, so the sample is larger
+        # than needed. Count pixels that fall into the boundary, then remove
+        # points to get down to the exact number desired.
         mask = np.where(boundary_mask, mask, 0)
         rows, cols = np.where(mask == 1)
         xy = list(zip(cols, rows))
