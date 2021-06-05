@@ -637,6 +637,16 @@ def reproject_match(xda, match_xda, **kwargs):
     coordinates (around -4e10) that break an exact xarray.align.
     """
     
+    # Return the array as is if the shape, CRS, bounds, and resolution
+    # are the same as the reference array
+    if (
+        xda.shape[-2:] == match_xda.shape[-2:]
+        and xda.rio.crs == match_xda.rio.crs
+        and xda.rio.bounds() == match_xda.rio.bounds()
+        and xda.rio.resolution() == match_xda.rio.resolution()
+    ):
+        return xda.copy()
+    
     # Reproject using the built-in rio method
     reproj = xda.rio.reproject_match(match_xda, **kwargs)
     
