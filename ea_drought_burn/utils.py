@@ -658,7 +658,7 @@ def find_scenes(src):
     """Finds and groups all files that are part of a scene"""
     patterns = {
         "landsat": r"((?<=band)(\d)|[a-z]+_qa)\.tif$",
-        "sentinel": r"_B([01][0-9])\.jp2$",
+        "sentinel": r"_B([01]?[0-9]A?)\.jp2$",
     }
     
     scenes = {}
