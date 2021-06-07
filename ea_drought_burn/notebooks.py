@@ -12,13 +12,20 @@ from nbconvert.preprocessors import (
 )
 from traitlets.config import Config
 
+from .config import PROJ_DIR
+
+
+
+
+NOTEBOOK_DIR = os.path.join(PROJ_DIR, "notebooks")
+
 
 
 
 def run_notebook(path):
     """Runs a notebook and saves the output"""
 
-    with open(path) as f:
+    with open(_get_path(path)) as f:
         nb = nbformat.read(f, as_version=4)
         ep = ExecutePreprocessor()
         ep.preprocess(nb, {})
@@ -32,6 +39,9 @@ def notebook_to_html(nb_path, html_path, run=False):
     
     Source: https://github.com/jupyter/nbconvert/issues/1194#issuecomment-839360322
     """
+    
+    
+    nb_path = _get_path(nb_path)
 
     # Run the notebook first if specified
     if run:
@@ -55,7 +65,8 @@ def notebook_to_html(nb_path, html_path, run=False):
     #exporter = HTMLExporter(config=c)
     #exporter.register_preprocessor(TagRemovePreprocessor(config=c), True)
 
-    # Configure and run out exporter - returns a tuple - first element with html, second with notebook metadata
+    # Configure and run out exporter - returns a tuple - first element with
+    # html, second with notebook metadata
     output = HTMLExporter(config=c).from_filename(nb_path)
 
     # Write to output html file
@@ -66,7 +77,7 @@ def notebook_to_html(nb_path, html_path, run=False):
 def clear_notebook(path):
     """Clears output from a notebook"""
 
-    with open(path) as f:
+    with open(_get_path(path)) as f:
         nb = nbformat.read(f, as_version=4)
         pp = ClearOutputPreprocessor()
         pp.preprocess(nb, {})
@@ -75,7 +86,21 @@ def clear_notebook(path):
         nbformat.write(nb, f)
 
         
-def clear_notebooks(path):
+def clear_notebooks(path=NOTEBOOK_DIR):
     """Clears output from all notebooks on path"""
     for fp in glob.iglob(os.path.join(path, "*.ipynb")):
         clear_notebook(fp)
+                           
+                           
+def _get_path(path):
+    """Verifies path to file, checking NOTEBOOK_DIR if not found"""
+    try:
+        open(path)
+    except OSError as err:
+        path = os.path.join(NOTEBOOK_DIR, path)
+        try:
+            open(path)
+        except OSError:
+            raise err        
+    return path
+                           

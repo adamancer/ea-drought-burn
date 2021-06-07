@@ -573,12 +573,49 @@ def copy_dataset_metadata(xdat, other):
     return copy_array_metadata(xarr, other).to_dataset(dim="band")
 
 
+def concat_arrays(xdas, dim="band", names=None):
+    """Concatenates a list of arrays along a numeric band
+    
+    Parameters
+    ---------
+    xdas: list of xarray.DataArrays
+        arrays to concatenate
+    dim: str (optional)
+        name of the dim to concatenate along
+    names: list of str
+        long names for each band to be stored in the long_name attr
+
+    Returns
+    -------
+    xarray.DataArray
+        array with each of the source arrays as a band
+    """
+    bands = []
+    for i, band in enumerate(xdas):
+        
+        # Set or update dim
+        try:
+            del band[dim]
+        except KeyError:
+            pass
+        band = band.squeeze()
+        band[dim] = len(bands)
+
+        # Assign name if given
+        if names is not None:
+            attrs.setdefault("long_name", []).append(names[i])
+            
+        bands.append(band)
+    
+    return xr.concat(bands, dim=dim)
+
+
 def iterarrays(obj):
     """Iterates through an array or dataset
 
     Parameters
     ---------
-    xarr: xarray.DataArray or xarray.Dataset
+    obj: xarray.DataArray or xarray.Dataset
         the object to iterate
 
     Returns
