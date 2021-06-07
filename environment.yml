@@ -8,6 +8,7 @@ dependencies:
 - matplotlib
 - numpy
 - numpy_groupies
+- scikit-learn
 - seaborn
 
 # Geospatial packages
