@@ -194,26 +194,16 @@ def zip_shapefile(gdf, path):
             f.write(os.path.join(tmpdir.name, fn), fn, zipfile.ZIP_DEFLATED)
 
 
-def create_sampling_mask(
-    xda,
-    counts,
-    boundary=None,
-    balanced=False,
-    seed=None,
-    path=None,
-):
+def create_sampling_mask(xda, counts, seed=None, path=None):
     """Creates mask for a sample of a data array
     
     Parameters
     ----------
     xda: xarray.DataArray
         array on which to base the sampling mask
-    counts: dict
-        name and counts for each mask to be created
-    boundary: gpd.GeoDataFrame (optional)
-        boundary to clip the source array to
-    balanced: bool (optional)
-        if True, ensure same counts for each distinct value
+    counts: int, dict, or iterable
+        counts for sampling mask. If a dict with string, keys are used to
+        label the returned data array.
     seed: int (optional)
         seed for the random number generator
     path: str (optional)
@@ -225,87 +215,44 @@ def create_sampling_mask(
         array containing each mask as a band
     """
     
-    if balanced:
-        vals = [v for v in np.unique(xda) if np.isfinite(v)]
-        for key, count in counts.items():
-            counts[key] = count // len(vals)
-        mask = None
-        for val in vals:
-            subset = xda.where(xda == val, np.nan)
-            submask = create_sampling_mask(subset,
-                                           counts=counts,
-                                           boundary=boundary,
-                                           seed=seed)
-            if mask is None:
-                mask = submask
-            else:
-                bands = []
-                for mask_band, sub_band in zip(mask, submask):
-                    bands.append(xr.where(sub_band, sub_band, mask_band))
-                mask = xr.concat(bands, dim="band")
-        
-        return mask
-
-    # Clip data array to boundary if given
-    if boundary is not None:
-        xda = xda.rio.clip(boundary.geometry)
-    boundary_mask = np.where(np.isfinite(xda.values), True, False)
+    # Convert counts to dict
+    if isinstance(counts, int):
+        counts = [counts]
+    if not isinstance(counts, dict):
+        counts = {i: c for i, c in enumerate(counts)}
     
-    # Calculate sample size based on area of shape relative to envelope
-    rows, cols = boundary_mask.shape[-2:]
-    pct_area = boundary_mask.sum().item() / (rows * cols)
-    scalar = 1.1 / pct_area
-    pool_size = int(scalar * sum(counts.values()))
-
-    # Create array of x and y for given array
-    xv, yv = np.meshgrid(np.arange(xda.sizes["x"]), np.arange(xda.sizes["y"]))
-    xy = np.column_stack((xv.ravel(), yv.ravel()))
+    # Create 1D arrays of values and indexes
+    vals = np.ravel(xda)
+    indexes = np.arange(len(vals))[np.isfinite(vals)]
     
-    # Create a sample pool large enough to accommodate masks in counts
+    # Create the sample
     rng = np.random.default_rng(seed)
-    try:
-        pool = rng.choice(xy, pool_size, replace=False).tolist()
-    except ValueError:
-        pool = None
-
-    # Add each mask as a layer in an xarray
+    pool = rng.choice(indexes, sum(counts.values()), replace=False).tolist() 
+    
+    # Map the sample back to a 2D array for each band
     masks = {}
-    for name, count in counts.items():
+    for key, count in counts.items():
         
-        if pool is None:
-            masks[name] = np.full(xda.shape[-2:], False)
-            continue
-        
-        # Pull samples from the pool to use for this mask
-        sample_size = int(scalar * count)
-        sample, pool = pool[:sample_size], pool[sample_size:]
+        # Take the sample from the pool
+        sample, pool = pool[:count], pool[count:]
         
         # Build mask based on the sample
-        mask = np.full(xda.shape[-2:], 0)
-        for (col, row) in rng.choice(sample, sample_size, replace=False):
-            mask[row][col] = 1
-
-        # Pool sizes are padded by a few percent, so the sample is larger
-        # than needed. Count pixels that fall into the boundary, then remove
-        # points to get down to the exact number desired.
-        mask = np.where(boundary_mask, mask, 0)
-        rows, cols = np.where(mask == 1)
-        xy = list(zip(cols, rows))
-        for (col, row) in rng.choice(xy, len(xy) - count, replace=False):
-            mask[row][col] = 0
-            
-        masks[name] = mask
-    
-    # Create data array containing the masks
-    arrs = []
-    for name, mask in masks.items():
-        arrs.append(xr.DataArray(mask,
-                                 coords={"y": xda.y, "x": xda.x},
-                                 dims=["y", "x"]))
-        arrs[-1]["band"] = len(arrs)
-
-    sampling_mask = xr.concat(arrs, dim="band")
-    sampling_mask.attrs["long_name"] = list(counts.keys())
+        mask = np.full(vals.shape, False)
+        for i in sample:
+            mask[i] = True
+        
+        # Reshape to a 2D data array and add to output 
+        masks[key] = xr.DataArray(mask.reshape(xda.shape),
+                                  coords={"y": xda.y, "x": xda.x},
+                                  dims=["y", "x"])
+        
+        # Add band attribute for when bands are concatenated
+        masks[key]["band"] = len(masks)
+        
+    # Create and label data array from masks
+    sampling_mask = xr.concat(masks.values(), dim="band")
+    if not isinstance(key, int):
+        sampling_mask.attrs["long_name"] = list(counts.keys())
     sampling_mask["spatial_ref"] = 0
     sampling_mask["spatial_ref"].attrs = xda["spatial_ref"].attrs
     
@@ -314,7 +261,7 @@ def create_sampling_mask(
         sampling_mask.rio.to_raster(path)
        
     # Convert to a true-false mask
-    return xr.where(sampling_mask == 1, True, False)
+    return sampling_mask
 
 
 def load_nifc_fires(path, fire_ids=None, crs=None, **kwargs):
