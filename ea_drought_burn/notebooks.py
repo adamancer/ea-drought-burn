@@ -25,7 +25,7 @@ NOTEBOOK_DIR = os.path.join(PROJ_DIR, "notebooks")
 def run_notebook(path):
     """Runs a notebook and saves the output"""
 
-    with open(_get_path(path)) as f:
+    with open(_get_path(path), encoding="utf-8") as f:
         nb = nbformat.read(f, as_version=4)
         ep = ExecutePreprocessor()
         ep.preprocess(nb, {})
@@ -77,7 +77,7 @@ def notebook_to_html(nb_path, html_path, run=False):
 def clear_notebook(path):
     """Clears output from a notebook"""
 
-    with open(_get_path(path)) as f:
+    with open(_get_path(path), encoding="utf-8") as f:
         nb = nbformat.read(f, as_version=4)
         pp = ClearOutputPreprocessor()
         pp.preprocess(nb, {})
