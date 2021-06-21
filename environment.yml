@@ -5,6 +5,7 @@ dependencies:
 - pip
 
 # General science packages
+- imbalanced-learn
 - matplotlib
 - numpy
 - numpy_groupies
