@@ -7,19 +7,18 @@ import os
 import re
 import tempfile
 import warnings
+import zipfile
 
 import earthpy.plot as ep
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy_groupies as npg
-import pandas as pd
-import rasterio
-from rasterio.enums import Resampling
 from rasterio.plot import plotting_extent as rasterio_plotting_extent
 import rioxarray as rxr
 import requests
 import seaborn as sns
+from shapely.geometry import box
 from skimage.measure import block_reduce
 import xarray as xr
 
@@ -33,7 +32,7 @@ def checksum(path, size=8192):
     ----------
     path: str
         path of file to hash
-    size: int
+    size: int (optional)
         size of block. Must be multiple of 128.
 
     Returns
@@ -41,7 +40,7 @@ def checksum(path, size=8192):
         MD5 checksum of file
     """
     if size % 128:
-        raise ValueError('Size must be a multiple of 128')
+        raise ValueError("Size must be a multiple of 128")
     with open(path, "rb") as f:
         md5_hash = hashlib.md5()
         while True:
@@ -59,9 +58,9 @@ def checksum_walk(path, output=None):
     ----------
     path: str
         path of file to hash
-    output: str
-        path to which to write the checksums. If not given,
-        a checksums.json file is added in each directory.
+    output: str (optional)
+        path to which to write the checksums. If not given, a checksums.json
+        file is added in each directory.
 
     Returns
     -------
@@ -113,50 +112,50 @@ def checksum_walk(path, output=None):
             # Save checksums as JSON
             with open(checksum_path, "w") as f:
                 json.dump(checksums, f, indent=2)
-    
-    
+
+
 def download_file(url, path):
     """Downloads file at url to path
-    
+
     Parameters
     ----------
     url: str
         url to download
     path: str
         path to download to
-        
+
     Returns
     -------
     None
     """
-    with requests.get(url, stream=True) as r:
-        r.raise_for_status()
+    with requests.get(url, stream=True) as response:
+        response.raise_for_status()
         with open(path, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192): 
+            for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
 
 
 def join_and_makedirs(*args):
     """Joins path and creates parent directories if needed
-    
-    
+
+
     Parameters
     ----------
     args: str
         one or more path segments
-    
+
     Returns
     -------
     str
         the joined path
     """
     path = os.path.join(*args)
-    
+
     # Get parent directory if file
     parents = path
     if re.search(r"\.[a-z]{2,4}$", parents, flags=re.I):
         parents = os.path.dirname(path)
-        
+
     # Create parent directories as needed
     try:
         os.makedirs(parents)
@@ -168,35 +167,35 @@ def join_and_makedirs(*args):
 
 def zip_shapefile(gdf, path):
     """Exports GeoDataFrame to shapefile and zips it
-    
-    The resulting zip file can be use to search USGS Earth Explorer
-    
+
+    The resulting zip file can be use to search USGS Earth Explorer.
+
     Parameters
     ----------
     gdf: geopandas.GeoDataFrame
         the data frame to export
     path: str
         the path to the zip file
-        
+
     Returns
     -------
     None
     """
-    
+
     # Write shapefile files to a temporary directory
     tmpdir = tempfile.TemporaryDirectory()
     stem = os.path.basename(os.path.splitext(path)[0])
     gdf.to_file(os.path.join(tmpdir.name, f"{stem}.shp"))
-    
+
     # Zip the temporary files
     with zipfile.ZipFile(path, "w") as f:
-        for fn in os.listdir(tmpdir.name):   
+        for fn in os.listdir(tmpdir.name):
             f.write(os.path.join(tmpdir.name, fn), fn, zipfile.ZIP_DEFLATED)
 
 
 def create_sampling_mask(xda, counts, seed=None, path=None):
     """Creates mask for a sample of a data array
-    
+
     Parameters
     ----------
     xda: xarray.DataArray
@@ -208,91 +207,92 @@ def create_sampling_mask(xda, counts, seed=None, path=None):
         seed for the random number generator
     path: str (optional)
         save mask to path if given
-        
+
     Returns
     -------
     xarray.DataArray
         array containing each mask as a band
     """
-    
+
     # Convert counts to dict
     if isinstance(counts, int):
         counts = [counts]
     if not isinstance(counts, dict):
         counts = {i: c for i, c in enumerate(counts)}
-    
+    if not counts:
+        raise ValueError("Must provide counts")
+
     # Create 1D arrays of values and indexes
     vals = np.ravel(xda)
     indexes = np.arange(len(vals))[np.isfinite(vals)]
-    
+
     # Create the sample
     rng = np.random.default_rng(seed)
-    pool = rng.choice(indexes, sum(counts.values()), replace=False).tolist() 
-    
+    pool = rng.choice(indexes, sum(counts.values()), replace=False).tolist()
+
     # Map the sample back to a 2D array for each band
     masks = {}
     for key, count in counts.items():
-        
+
         # Take the sample from the pool
         sample, pool = pool[:count], pool[count:]
-        
+
         # Build mask based on the sample
         mask = np.full(vals.shape, False)
         for i in sample:
             mask[i] = True
-        
-        # Reshape to a 2D data array and add to output 
+
+        # Reshape to a 2D data array and add to output
         masks[key] = xr.DataArray(mask.reshape(xda.shape),
                                   coords={"y": xda.y, "x": xda.x},
                                   dims=["y", "x"])
-        
+
         # Add band attribute for when bands are concatenated
         masks[key]["band"] = len(masks)
-        
+
     # Create and label data array from masks
     sampling_mask = xr.concat(masks.values(), dim="band")
     if not isinstance(key, int):
         sampling_mask.attrs["long_name"] = list(counts.keys())
     sampling_mask["spatial_ref"] = 0
     sampling_mask["spatial_ref"].attrs = xda["spatial_ref"].attrs
-    
+
     # Write mask to raster file if path given
     if path:
         sampling_mask.rio.to_raster(path)
-       
+
     # Convert to a true-false mask
     return sampling_mask
 
 
 def load_nifc_fires(path, fire_ids=None, crs=None, **kwargs):
     """Loads fires matching the given IDs from NIFC shapefile
-    
+
     Parameters
     ----------
     path: str
         path to the NIFC fire perimeter shapefile
     fire_ids: list-like (optional)
-        list of fire IDs to return. If not provided, all fires are
-        returned.
+        list of fire IDs to return. If not provided, all fires are returned.
     crs: str or int (optional)
         the CRS to convert the raster to as an EPSG code
     kwargs (optional):
         any keyword argument accepted by `geopandas.read_file`
-        
+
     Returns
     -------
     geopandas.GeoDataFrame
-        dataframe of matching fires  
+        dataframe of matching fires
     """
-    
+
     # Load the NIFC fire shapefile
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
         nifc_fires = gpd.read_file(path, **kwargs)
-    
+
     # Reproject to given CRS if needed
     if crs and nifc_fires.crs != crs:
-        nifc_fires.to_crs(crs, inplace=True)  
+        nifc_fires.to_crs(crs, inplace=True)
 
     # Limit dataframe to required columns
     nifc_fires = nifc_fires[[
@@ -305,125 +305,14 @@ def load_nifc_fires(path, fire_ids=None, crs=None, **kwargs):
         "gisacres",
         "geometry"
     ]]
-    
+
     # Convert perimeterd to date
-    nifc_fires["perimeterd"] = pd.to_datetime(nifc_fires["perimeterd"])
-    
+    # FIXME: Using datetimes breaks gdf.to_file
+    #nifc_fires["perimeterd"] = pd.to_datetime(nifc_fires["perimeterd"])
+
     if fire_ids:
         return nifc_fires[nifc_fires.uniquefire.isin(fire_ids)]
     return nifc_fires
-
-'''
-def as_xarray(func):
-    """Wraps a non-xarray function so that metadata is maintained"""
-
-    @wraps(func)
-    def wrapped(*args, **kwargs):
-        result = func(*args, **kwargs)
-
-        # Copy metadata from original object and add band if needed
-        xobj = copy_xr_metadata(args[0], result)
-        if "band" not in xobj.coords and "band" not in xobj.dims:
-            xobj = add_dim(xobj, dim="band", coords={"name" : ["result"]})
-
-        return xobj
-    return wrapped
-'''
-
-
-def plot_xarray(func):
-    """Wraps an xarray object to allow plotting with earthpy"""
-
-    @wraps(func)
-    def wrapped(*args, **kwargs):
-
-        # Convert first argument to a masked array to plot with earthpy
-        args = list(args)
-        arr = to_numpy_array(args[0])
-
-        # Automatically assign extent for plots if rio accessor is active
-        if func.__name__.startswith("plot_"):
-            try:
-                kwargs.setdefault("extent", plotting_extent(args[0]))
-            except AttributeError:
-                # Fails if rio accessor has not been loaded
-                pass
-
-        # HACK: Masked arrays cannot be stretched because they are not
-        # handled intuitively by the np.percentile function used by the
-        # earthpy internals. To get around that, the decorator forces NaN
-        # values to 0 when stretch is True.
-        if kwargs.get("stretch"):
-            pct_clip = np.nanmedian(arr)
-            arr = to_numpy_array(args[0].fillna(0))
-        else:
-            arr = np.ma.masked_invalid(arr)
-
-        return func(arr, *args[1:], **kwargs)
-    return wrapped
-
-
-@plot_xarray
-def hist(*args, **kwargs):
-    """Plots histogram based on an xarray object"""
-    return ep.hist(*args, **kwargs)
-
-
-@plot_xarray
-def plot_bands(*args, **kwargs):
-    """Plots bands based on an xarray object"""
-    return ep.plot_bands(*args, **kwargs)
-
-
-@plot_xarray
-def plot_rgb(*args, **kwargs):
-    """Plots RGB based on an xarray object"""
-    return ep.plot_rgb(*args, **kwargs)
-
-
-'''
-def add_dim(xobj, dim="band", coords=None):
-    """Adds an index dimension to an array
-
-    Parameters
-    ---------
-    xobj: xarray.DataArray or xarray.Dataset
-        an array without an index dimension
-    dim: str (optional)
-        the name of the index dimension
-    coords: dict of list-like (optional)
-        list of names for the bands in the given xarray. The length of each
-        list must match that of the array.
-
-    Returns
-    -------
-    xarray.DataArray or xarray.Dataset
-       Array with band as a dimensional coordinate or dataset with band as keys
-    """
-
-    # Convert dataset to array
-    is_dataset = False
-    if isinstance(xobj, xr.Dataset):
-        xobj = xobj.to_array(dim=dim)
-
-    # Check shape to see if it contains only one band
-    if len(xobj.shape) == 2:
-        xobj = [xobj]
-
-    # Assign band
-    layers = []
-    for arr in xobj:
-        arr[dim] = len(layers)
-        layers.append(arr)
-    new_xobj = xr.concat(layers, dim=dim)
-
-    # Map any provided names
-    if coords:
-        coords = {k: (dim, list(v)) for k, v in coords.items()}
-        new_xobj = new_xobj.assign_coords(**coords)
-
-    return new_xobj.to_dataset(dim=dim) if is_dataset else new_xobj
-'''
 
 
 def copy_xr_metadata(xobj, other):
@@ -489,13 +378,13 @@ def copy_array_metadata(xarr, other):
         for xband in iterarrays(xarr):
             coords = {k: v for k, v in xband.coords.items()
                       if k not in xband.dims}
-            
+
             obands = []
             for oband in iterarrays(other):
                 obands.append(xband.__class__(oband,
                                               dims=xband.dims,
                                               coords=xband.coords))
-            
+
             return xr.concat(obands, dim="band")
 
     raise ValueError("Could not copy xr metadata")
@@ -522,14 +411,14 @@ def copy_dataset_metadata(xdat, other):
 
 def concat_arrays(xdas, dim="band", names=None):
     """Concatenates a list of arrays along a numeric band
-    
+
     Parameters
     ---------
     xdas: list of xarray.DataArrays
         arrays to concatenate
     dim: str (optional)
         name of the dim to concatenate along
-    names: list of str
+    names: list of str (optional)
         long names for each band to be stored in the long_name attr
 
     Returns
@@ -538,8 +427,8 @@ def concat_arrays(xdas, dim="band", names=None):
         array with each of the source arrays as a band
     """
     bands = []
-    for i, band in enumerate(xdas):
-        
+    for band in xdas:
+
         # Set or update dim
         try:
             del band[dim]
@@ -548,13 +437,15 @@ def concat_arrays(xdas, dim="band", names=None):
         band = band.squeeze()
         band[dim] = len(bands)
 
-        # Assign name if given
-        if names is not None:
-            attrs.setdefault("long_name", []).append(names[i])
-            
         bands.append(band)
-    
-    return xr.concat(bands, dim=dim)
+
+    xda = xr.concat(bands, dim=dim)
+
+    # Assign names to long_name
+    if names:
+        xda.attrs["long_name"] = names
+
+    return xda
 
 
 def iterarrays(obj):
@@ -619,46 +510,47 @@ def plotting_extent(xobj):
 
 def open_raster(path, crs=None, crop_bound=None, **kwargs):
     """Opens, reprojects, clips, and squeezes a raster file
-    
+
     Parameters
     ----------
     path: str
         the path to a raster file
     crs: str or int (optional)
         the CRS to convert the raster to as an EPSG code
-    crop_bound (optional): 
+    crop_bound (optional):
         the geometry to clip the data to
     kwargs (optional):
         any keyword argument accepted by `rioxarray.open_rasterio`
-        
+
     Returns
     -------
     xarray.DataArray
-        the reprojected, clipped, and squeezed array 
-    
+        the reprojected, clipped, and squeezed array
+
     """
     kwargs.setdefault("masked", True)
     xda = rxr.open_rasterio(path, **kwargs)
-    
+
     # Reproject to CRS
     if crs is not None and xda.rio.crs != crs:
         xda = xda.rio.reproject(crs)
-    
+
     # Reproject to CRS
     if crop_bound is not None:
         if crop_bound.crs != xda.rio.crs:
             crop_bound = crop_bound.to_crs(xda.rio.crs)
         xda = xda.rio.clip(crop_bound, drop=True, from_disk=True)
-    
+
     return xda.squeeze()
 
-    
+
 def reproject_match(xda, match_xda, **kwargs):
     """Forces reprojection to use exact x, y coordinates of original array
-    
+
     The rioxarray reproject_match function can produce small differences in
-    coordinates (around -4e10) that break xarray.align.
-    
+    coordinates (around -4e10) that break xarray.align, so this function
+    tries to guarantee that the coordinates are exactly the same.
+
     Parameters
     ----------
     xda: xarray.DataArray
@@ -667,66 +559,57 @@ def reproject_match(xda, match_xda, **kwargs):
         the data array to match
     kwargs(optional):
         any keyword argument accepted by the `rio.reproject_match` method
-        
+
     Returns
     -------
     xda.DataArray
         the reprojected data array
     """
-    
-    # FIXME: Indexing issue occurs for some arrays when this block is active
-    # Return the array as is if the shape, CRS, bounds, and resolution
-    # are the same as the reference array
-    #if (
-    #    xda.shape[-2:] == match_xda.shape[-2:]
-    #    and xda.rio.crs == match_xda.rio.crs
-    #    and xda.rio.bounds() == match_xda.rio.bounds()
-    #    and xda.rio.resolution() == match_xda.rio.resolution()
-    #):
-    #    return xda.copy()
-    
+
     # Reproject using the built-in rio method
     reproj = xda.rio.reproject_match(match_xda, **kwargs)
-    
+
     # Copy metadata from original. This manually overwrites the metadata from
     # the reprojection, including the decimal offset.
     reproj = copy_xr_metadata(match_xda, reproj)
-    
+
     # Reindex reprojection. Some arrays end up with indexes that don't match
     # the reprojected coordinates, which produces weird calculation errors
     # (for example, operations between arrays of the same sizes producing
     # result arrays of a different, incorrect size). Force the reindex to
     # ensure that the x and y indexes are up-to-date.
     reproj = reproj.reindex({"x": reproj.x, "y": reproj.y})
-    
+
     return reproj
 
 
 def find_scenes(src):
     """Finds and groups all files that are part of a scene
-    
+
     Parameters
     ----------
     src: str
-        the path to a directory containing Landsat or Sentinel data
-        where each band is a separate file
-        
+        the path to a directory containing Landsat or Sentinel data where
+        each band is a separate file
+
     Returns
     -------
     dict of dicts
         dict of scenes. Each scene is arranged by band number.
-        
+
     """
+
+    # Satellite-specific regex patterns
     patterns = {
         "landsat": r"((?<=band)(\d)|[a-z]+_qa)\.tif$",
         "sentinel": r"_B([01]?[0-9]A?)\.jp2$",
     }
-    
+
     scenes = {}
     for root, dirs, files in os.walk(src):
-        for key, pattern in patterns.items():
+        for pattern in patterns.values():
             for fn in files:
-                         
+
                 try:
                     band = re.search(pattern, fn).group(1).lstrip("0")
                 except AttributeError:
@@ -739,13 +622,13 @@ def find_scenes(src):
                         scene = segments.pop(-1)
 
                     scenes.setdefault(scene, {})[band] = os.path.join(root, fn)
-    
+
     return scenes
 
 
 def stack_scene(scene, reproj_to=None, **kwargs):
     """Stacks all files that are part of a scene in a single array
-    
+
     Parameters
     ----------
     scene: dict
@@ -755,21 +638,21 @@ def stack_scene(scene, reproj_to=None, **kwargs):
         to the highest resolution in the source data.
     kwargs (optional):
         any keyword argument accepted by `open_raster`
-    
+
     Returns
     -------
     xarray.DataArray
-        array with each band as a layer 
+        array with each band as a layer
     """
-    
+
     def sortable(val):
-        """Returns a sortable representation of the band number""" 
+        """Returns a sortable representation of the band number"""
         return val.zfill(16 + len(re.search("[a-z]*$", val.lower()).group()))
-    
+
     layers = []
     attrs = {}
     for band in sorted(scene, key=sortable):
-    
+
         layers.append(open_raster(scene[band], **kwargs))
 
         # Update band number
@@ -784,26 +667,26 @@ def stack_scene(scene, reproj_to=None, **kwargs):
     # resolution in the input data if no reference array is provided.
     if reproj_to is None:
         res = min([lyr.rio.resolution()[0] for lyr in layers])
-        reproj_to = [lyr for lyr in layers if lyr.rio.resolution()[0] == res][0] 
+        reproj_to = [lyr for lyr in layers if lyr.rio.resolution()[0] == res][0]
     layers = [reproject_match(lyr, reproj_to) for lyr in layers]
-    
+
     xda = xr.concat(layers, dim="band")
     for key, val in attrs.items():
         xda.attrs[key] = val
-    
+
     return xda
 
 
 def get_long_name(xda, name):
-    """Get layer from array corresponding to a name
-    
+    """Get layer from array corresponding to a value in long_name
+
     Parameters
     ----------
     xda: xarray.DateArray
         an array with a long_name attribute
     name: str
         the name of the band to return
-    
+
     Returns
     -------
     xarray.DataArray
@@ -821,7 +704,7 @@ def get_long_name(xda, name):
 
 def plot_regression(x, y, ax, color="gray", **kwargs):
     """Plots linear regression with correlation coefficient
-    
+
     Parameters
     ----------
     x: numpy.array or similar
@@ -832,28 +715,28 @@ def plot_regression(x, y, ax, color="gray", **kwargs):
         the axis on which to plot
     color: str or tuple (optional)
         the color of the points in a format recognized by matplotlib
-        
+
     Returns
     -------
     None
     """
-    
+
     # Format axis based on kwargs
     ax.set(**kwargs)
 
     # Plot linear regression
-    regplot = sns.regplot(x="x",
-                          y="y",
-                          data={"x": x, "y": y},
-                          #x_estimator=np.mean,
-                          ax=ax,
-                          color=color)
+    sns.regplot(x="x",
+                y="y",
+                data={"x": x, "y": y},
+                #x_estimator=np.mean,
+                ax=ax,
+                color=color)
 
     # Calculate correlation coefficients
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         r2 = np.corrcoef(x, y)[0, 1] ** 2
-    
+
     ax.annotate(f"r²={r2:.2f}",
                 (0.98, 0.98),
                 xycoords="axes fraction",
@@ -863,7 +746,7 @@ def plot_regression(x, y, ax, color="gray", **kwargs):
 
 def create_figure(n_rows, n_cols, title=None):
     """Creates a figure based on the supplied arguments
-    
+
     Parameters
     ----------
     n_rows: int
@@ -872,16 +755,16 @@ def create_figure(n_rows, n_cols, title=None):
         number of columns in the figure
     title: str (optional)
         title of the figure
-        
+
     Returns
     -------
     tuple
-        Tuple of (figure, axes) where axes is a list        
+        Tuple of (figure, axes) where axes is a list
     """
-    
+
     n_rows = int(n_rows)
     n_cols = int(n_cols)
-    
+
     width = 8 * n_cols
     height = n_rows * width / n_cols
 
@@ -889,7 +772,7 @@ def create_figure(n_rows, n_cols, title=None):
                              n_cols,
                              figsize=(width, height),
                              constrained_layout=True)
-    
+
     if title:
         fig.suptitle(title, fontsize=32)
 
@@ -902,85 +785,85 @@ def create_figure(n_rows, n_cols, title=None):
             axes = list(axes)
         except TypeError:
             axes = [axes]
-    
+
     return fig, axes
 
 
 def aggregate(xda, idx_or_size, func=np.nanmean, fill_value=np.nan):
     """Aggregates a 2D array using an index array or block size
-    
+
     Parameters
     ----------
     xda: xarray.DataArray
         the array with the data to aggregate
     idx_or_size: xarray.DataArray, int, or tuple
-        either an array with each pixel indexed based on the value
-        in the source array or the size in pixels of the desired grid
+        either an array with each pixel indexed based on the value in the
+        source array or the size in pixels of the desired grid
     func: callable (optional)
-        the numpy function used to aggreaget each block
+        the numpy function used to aggregate each block
     fill_value: int or float (optional)
         the value to use for missing values when cells do not fit
         perfectly into the original array
-    
-    
+
+
     Returns
     -------
     numpy.array
-        array containing the aggregated values  
+        array containing the aggregated values
     """
-    
+
     if isinstance(idx_or_size, int):
         idx_or_size = (idx_or_size, idx_or_size)
-    
+
     # Coerce array to a numpy array
     arr = to_numpy_array(xda)
-    
+
     # Use scipy to split array into grid if block size given
     if isinstance(idx_or_size, (list, tuple)):
         return block_reduce(arr, idx_or_size, func=func, cval=fill_value)
-    
+
     # Use numpy_groupies to group on an index array
     idx = np.ravel(to_numpy_array(idx_or_size))
-    
+
     # Use nodata from index if set
     nodata = fill_value
     if isinstance(idx_or_size, xr.DataArray):
         nodata = idx_or_size.rio.nodata
-    
+
     # Set data to fill_value where nodata in index
     vals = np.ravel(arr)
     vals[idx == nodata] = fill_value
-    
+
     return npg.aggregate(idx, vals, func=func, fill_value=fill_value)
-    
-    
+
+
 def agg_to_raster(xda, idx_or_size, func=np.nanmean, fill_value=np.nan):
     """Aggregates data and saves as a raster matching the original
-    
+
     Parameters
     ----------
     xda: xarray.DataArray
         the array with the data to aggregate
     idx_or_size: xarray.DataArray, int, or tuple
-        either an array with each pixel indexed based on the value
-        in the source array or the size in pixels of the desired grid
+        either an array with each pixel indexed based on the value in the
+        source array or the size in pixels of the desired grid
     func: callable (optional)
         the numpy function used to aggreaget each block
     fill_value: int or float (optional)
-        the value to use for missing values when cells do not fit
-        perfectly into the original array
-    
-    
+        the value to use for missing values when cells do not fit perfectly
+        into the original array
+
+
     Returns
     -------
     xarray.DataArray
         array containing the aggregated values with geospatial information
     """
     agg = np.ravel(aggregate(xda, idx_or_size, func, fill_value=fill_value))
-    
+
     if isinstance(idx_or_size, int):
         idx_or_size = (idx_or_size, idx_or_size)
-    
+
     # Convert block_reduce aggregate back to a georeferenced array
     if isinstance(idx_or_size, (list, tuple)):
         xda = xda.copy()
@@ -998,7 +881,7 @@ def agg_to_raster(xda, idx_or_size, func=np.nanmean, fill_value=np.nan):
                 col += col_size
             row += row_size
             col = 0
-    
+
     # Convert index-based aggregate back to a georeferenced array
     else:
         xda = idx_or_size.copy()
@@ -1009,30 +892,29 @@ def agg_to_raster(xda, idx_or_size, func=np.nanmean, fill_value=np.nan):
 
 def extract_grid(xda, path=None, nodata=0):
     """Extracts grid matching input array
-    
-    Used to extract the grid from an array where the data is
-    coarser than the resolution (for example, 4-km blocks that
-    have been resampled to 30-m resolution).
-    
+
+    Used to extract the grid from an array where the data is coarser than the
+    resolution (for example, 4-km blocks that have been resampled to 30-m
+    resolution).
+
     Parameters
     ----------
     xda: xarray.DataArray
         the gridded array
     path: str (optional)
         save indexed grid to path if given
-    nodata: int or float
+    nodata: int (optional)
         nodata value for the grid array
-        
+
     Returns
     -------
     xarray.DataArray
-        an array with each pixel indexed based on the value in
-        the source array
+        an array with each pixel indexed based on the value in the source array
     """
 
     # Create a copy of the input array
     grid = xda.squeeze()
-    
+
     # Iterate through each row to find column boundaries
     cols = []
     for i, row in enumerate(xda.values):
@@ -1053,10 +935,10 @@ def extract_grid(xda, path=None, nodata=0):
                 rows.append(j)
             last = col
 
-    # Get unique values for boundaries        
+    # Get unique values for boundaries
     rows = sorted(set(rows))
     cols = sorted(set(cols))
-    
+
     # Create the reference grid based on cell boundaries
     grid = grid.where(np.isfinite(grid), nodata)
     arr = grid.values
@@ -1087,11 +969,95 @@ def extract_grid(xda, path=None, nodata=0):
                        dims=["y", "x"])
 
     xda = xda.astype(int)
-    xda.rio.write_nodata(0, inplace=True)
+    xda.rio.write_nodata(nodata, inplace=True)
     if path is not None:
         xda.rio.to_raster(path)
-    
-    return xdadef draw_legend(im_ax, bbox=(1.05, 1), titles=None, cmap=None, classes=None):
+
+    return xda
+
+
+def bounds_to_gdf(xda, name="Bounds"):
+    """Converts raster bounds to GeoDataFrame
+
+    Parameters
+    ----------
+    xda: xarray.DataArray
+        the source array
+    names: str (optional)
+        name for the row in the GeoDataFrame
+
+    Returns
+    -------
+    geopandas.GeoDataFrame
+        Dataframe containing the bounds as a geometry
+    """
+    return gpd.GeoDataFrame(
+        {"name": name, "geometry": [box(*xda.rio.bounds())]},
+        crs=xda.rio.crs
+    )
+
+
+def plot_xarray(func):
+    """Wraps an xarray object to allow plotting with earthpy
+
+    Parameters
+    ----------
+    func: callable
+        an earthpy.plot function
+
+    Returns
+    -------
+    mixed
+        result of the wrapped function
+    """
+
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+
+        # Convert first argument to a masked array to plot with earthpy
+        args = list(args)
+        arr = to_numpy_array(args[0])
+
+        # Automatically assign extent for plots if rio accessor is active
+        if func.__name__.startswith("plot_"):
+            try:
+                kwargs.setdefault("extent", plotting_extent(args[0]))
+            except AttributeError:
+                # Fails if rio accessor has not been loaded
+                pass
+
+        # HACK: Masked arrays cannot be stretched because they are not
+        # handled intuitively by the np.percentile function used by the
+        # earthpy internals. To get around that, the decorator forces NaN
+        # values to 0 when stretch is True.
+        if kwargs.get("stretch"):
+            arr = to_numpy_array(args[0].fillna(0))
+        else:
+            arr = np.ma.masked_invalid(arr)
+
+        return func(arr, *args[1:], **kwargs)
+    return wrapped
+
+
+@plot_xarray
+def hist(*args, **kwargs):
+    """Plots histogram based on an xarray object"""
+    return ep.hist(*args, **kwargs)
+
+
+@plot_xarray
+def plot_bands(*args, **kwargs):
+    """Plots bands based on an xarray object"""
+    return ep.plot_bands(*args, **kwargs)
+
+
+@plot_xarray
+def plot_rgb(*args, **kwargs):
+    """Plots RGB based on an xarray object"""
+    return ep.plot_rgb(*args, **kwargs)
+
+
+def draw_legend(im_ax, bbox=(1.05, 1), titles=None, cmap=None, classes=None):
     """Create a custom legend with a box for each class in a raster.
 
     This is an exact copy of the `earthpy.plot.draw_legend` function except
