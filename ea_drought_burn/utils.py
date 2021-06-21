@@ -1091,4 +1091,100 @@ def extract_grid(xda, path=None, nodata=0):
     if path is not None:
         xda.rio.to_raster(path)
     
-    return xda
+    return xdadef draw_legend(im_ax, bbox=(1.05, 1), titles=None, cmap=None, classes=None):
+    """Create a custom legend with a box for each class in a raster.
+
+    This is an exact copy of the `earthpy.plot.draw_legend` function except
+    that it uses a relative font size in the legend to allow the text to
+    scale with image size, plus a couple tweaks to allow it to run outside of
+    its origianl context.
+
+    Parameters
+    ----------
+    im_ax : matplotlib image object
+        This is the image returned from a call to imshow().
+    bbox : tuple (default = (1.05, 1))
+        This is the bbox_to_anchor argument that will place the legend
+        anywhere on or around your plot.
+    titles : list (optional)
+        A list of a title or category for each unique value in your raster.
+        This is the label that will go next to each box in your legend. If
+        nothing is provided, a generic "Category x" will be populated.
+    cmap : str (optional)
+        Colormap name to be used for legend items.
+    classes : list (optional)
+        A list of unique values found in the numpy array that you wish to plot.
+
+    Returns
+    ----------
+    matplotlib.pyplot.legend
+        A matplotlib legend object to be placed on the plot.
+    """
+
+    # Lazy load imports to keep this function self-contained so that it can
+    # be removed cleanly if a better solution presents itself
+    from matplotlib import patches as mpatches
+    from matplotlib.colors import ListedColormap
+
+    try:
+        im_ax.axes
+    except AttributeError:
+        raise AttributeError(
+            "The legend function requires a matplotlib axis object to "
+            "run properly. You have provided a {}.".format(type(im_ax))
+        )
+
+    # If classes not provided, get them from the im array in the ax object
+    # Else use provided vals
+    if classes is not None:
+        # Get the colormap from the mpl object
+        cmap = im_ax.cmap.name
+
+        # If the colormap is manually generated from a list
+        if cmap == "from_list":
+            cmap = ListedColormap(im_ax.cmap.colors)
+
+        colors = ep.make_col_list(
+            nclasses=len(classes), unique_vals=classes, cmap=cmap
+        )
+        # If there are more colors than classes, raise value error
+        if len(set(colors)) < len(classes):
+            raise ValueError(
+                "There are more classes than colors in your cmap. "
+                "Please provide a ListedColormap with the same number "
+                "of colors as classes."
+            )
+
+    else:
+        classes = list(np.unique(im_ax.axes.get_images()[0].get_array()))
+        # Remove masked values, could next this list comp but keeping it simple
+        classes = [
+            aclass for aclass in classes if aclass is not np.ma.core.masked
+        ]
+        colors = [im_ax.cmap(im_ax.norm(aclass)) for aclass in classes]
+
+    # If titles are not provided, create filler titles
+    if not titles:
+        titles = ["Category {}".format(i + 1) for i in range(len(classes))]
+
+    if not len(classes) == len(titles):
+        raise ValueError(
+            "The number of classes should equal the number of "
+            "titles. You have provided {0} classes and {1} titles.".format(
+                len(classes), len(titles)
+            )
+        )
+
+    patches = [
+        mpatches.Patch(color=colors[i], label="{lab}".format(lab=titles[i]))
+        for i in range(len(titles))
+    ]
+    # Get the axis for the legend
+    ax = im_ax.axes
+    return ax.legend(
+        handles=patches,
+        bbox_to_anchor=bbox,
+        loc=2,
+        borderaxespad=0.0,
+        prop={"size": "small"},
+    )
