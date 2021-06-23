@@ -15,7 +15,7 @@ from .config import PROJ_DIR
 
 
 
-NOTEBOOK_DIR = os.path.join(PROJ_DIR, "notebooks")
+NOTEBOOK_DIR = os.path.realpath(os.path.join(PROJ_DIR, "notebooks"))
 
 
 
