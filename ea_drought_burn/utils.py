@@ -805,7 +805,6 @@ def aggregate(xda, idx_or_size, func=np.nanmean, fill_value=np.nan):
         the value to use for missing values when cells do not fit
         perfectly into the original array
 
-
     Returns
     -------
     numpy.array
@@ -852,7 +851,6 @@ def agg_to_raster(xda, idx_or_size, func=np.nanmean, fill_value=np.nan):
     fill_value: int or float (optional)
         the value to use for missing values when cells do not fit perfectly
         into the original array
-
 
     Returns
     -------
